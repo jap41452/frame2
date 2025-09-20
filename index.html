@@ -2,11 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>FrameX — Draw • BCs • q-Loads • End Releases • Solve • Stress Panel</title>
+<title>FrameX — Mixed Beams & Bars with End Releases</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/numeric/1.2.6/numeric.min.js"></script>
-
 <style>
   :root { --pad:18px; --canvas-w:980px; --canvas-h:560px; --panel-w:380px; }
   body { background:#f6f7fb; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; margin:20px; }
@@ -21,30 +20,24 @@
   button.primary { background:#eee; color:#333; border-color:#bbb; }
   button.ghost   { background:#eee; color:#333; border-color:#bbb; }
   button.active  { background:#4b5563; color:#fff; border-color:#4b5563; }
-
   .stack { display:flex; flex-direction:column; gap:8px; }
   #wrap { position:relative; width:var(--canvas-w); height:var(--canvas-h); background:#fff; border:1px solid #ccc; border-radius:8px; }
   canvas { position:absolute; inset:0; }
   #base { z-index:1; }
   #overlay { z-index:2; pointer-events:auto; cursor:crosshair; }
-
   .panel { width:var(--panel-w); }
   .list { font-size:13px; max-height:220px; overflow:auto; border:1px dashed #ddd; padding:8px; border-radius:8px; }
   .hint { color:#666; font-size:12px; }
-  .mode { font-weight:600; }
   .swal2-popup { font-size:12px !important; width:auto !important; min-width:360px !important; }
   .swal2-input, .swal2-select { font-size:12px !important; height:28px !important; }
-
   #stressPanelBlock { display:none; }
   #stressPanel { width:100%; height:260px; position:static; border:1px solid #ccc; border-radius:8px; }
 </style>
 </head>
-
 <body>
   <h2>FrameX — Draw • BCs • q-Loads • End Releases • Solve • Stress Panel</h2>
 
   <div class="controls">
-    <span class="mode">Mode:</span>
     <button id="btnDraw" class="primary">Draw Members</button>
     <button id="btnSelect" class="ghost">Select/Edit</button>
 
@@ -61,6 +54,7 @@
         <canvas id="base" width="980" height="560"></canvas>
         <canvas id="overlay" width="980" height="560"></canvas>
       </div>
+
       <div class="controls" style="margin-top:10px; gap:12px;">
         <button id="btnUndo" class="ghost">Undo</button>
         <button id="btnClear" class="ghost">Clear</button>
@@ -68,9 +62,9 @@
 
         <button id="btnSolve" class="primary">Solve</button>
 
-        <button class="ghost" disabled>Defl scale</button>
+        <button class="ghost" disabled>Deflection Scale</button>
         <input id="defScale" type="number" step="any" value="1" style="width:80px;">
-        <button class="ghost" disabled>Divisions</button>
+        <button class="ghost" disabled>Segment Divisions</button>
         <input id="divCount" type="number" min="1" max="50" value="10" style="width:70px;">
         <button id="btnResetView" class="ghost">Reset View</button>
       </div>
@@ -213,9 +207,11 @@
     refreshLists(); draw();
   }
 
+  // Canvas ↔ analysis Y
   const yUp = yCanvas => base.height - yCanvas;
   const yCanvas = yUpVal => base.height - yUpVal;
 
+  // ===== Active button helpers =====
   const modeBtns = ['btnDraw','btnSelect'];
   const viewBtns = ['viewGeom','viewDef','viewStressPanel'];
   function setActiveGroup(ids, activeId){
@@ -503,7 +499,7 @@
     }).then(res=>{ if (res.isConfirmed){ Object.assign(m,res.value); refreshLists(); draw(); }});
   }
 
-  // BC glyph
+  // ===== BC glyph preview =====
   function drawBCGlyph(g, bc){
     g.clearRect(0,0,g.canvas.width,g.canvas.height);
     g.save();
@@ -634,7 +630,7 @@
     g.restore();
   }
 
-  // q-load graphics
+  // ===== q-load graphics =====
   function computeQScale(){
     let maxQx=0, maxQy=0;
     for (const m of members){
@@ -671,6 +667,7 @@
     }
   }
 
+  // End-release glyphs
   function drawEndReleaseGlyphs(g, m){
     const a=nodeById(m.n1), b=nodeById(m.n2);
     if (!a || !b) return;
@@ -688,7 +685,7 @@
     const DIV = Math.max(1, Math.min(50, (parseInt(document.getElementById('divCount').value)||10)));
     try {
       const build = buildAnalysisModel(DIV);
-      const {N, dofMap, anodes, F, K, memberSubs} = build;
+      const {N, dofMap, anodes, F, K} = build;
 
       // Springs
       for (const n of nodes){
@@ -702,7 +699,7 @@
         F[b+0] += n.Fx; F[b+1] += n.Fy; F[b+2] += n.M;
       }
 
-      // BCs (primary)
+      // BCs
       const constrained = new Set();
       for (const n of nodes){
         const b = dofMap.primary[n.id]; if (b===undefined) continue;
@@ -710,9 +707,10 @@
         else if (n.bc==='simple'){ constrained.add(b+0); constrained.add(b+1); } // u=v=0
       }
 
-      // NEW: kill θ at analysis nodes that belong only to axial members
-      for (const aid of build.axialOnlyThetaNodes) {
-        constrained.add( (aid - 1)*3 + 2 );
+      // (harmless) extra: if any analysis node connects only axial bars, constrain its θ
+      for (const aid of build.axialOnlyThetaNodes){
+        const gi = (aid-1)*3 + 2;
+        constrained.add(gi);
       }
 
       const allIdx = [...Array(N).keys()];
@@ -732,11 +730,11 @@
       const KU = numeric.dot(K, U);
       const R = KU.map((v,i)=>v - F[i]);
 
-      // Deformed sublines
+      // Deformed sublines (for viewDef)
       const sublines = [];
       for (const mem of members){
         const poly = [];
-        const sub = memberSubs[mem.id];
+        const sub = build.memberSubs[mem.id];
         for (const nid of sub){
           const aidx = build.dofMap.analysis[nid];
           const ux = U[aidx+0], vy = U[aidx+1];
@@ -747,26 +745,26 @@
       }
 
       // Internal forces -> stresses
-      const mf = elementEndForces(U, build);
+      const mf = elementEndForces(U, build); // per member M,N at subnodes
       const stress = {};
       for (const mem of members){
         const info = mf.perMember[mem.id]; if (!info) continue;
         const A=mem.A||0, S = (mem.S>0)? mem.S : ((mem.I>0 && mem.c>0)? mem.I/mem.c : 0);
         const sL=[], sR=[], pts=[];
-        const sub = memberSubs[mem.id];
+        const sub = build.memberSubs[mem.id];
         for (let idx=0; idx<sub.length; idx++){
           const aid = sub[idx];
           const np = build.anodes[aid];
-          const Nf = info.N[idx]||0;
-          const Mf = info.M[idx]||0;
+          const N = info.N[idx]||0;
+          const M = info.M[idx]||0;
           let sigL=0, sigR=0;
           if (A>0){
-            const axial = Nf/A;
-            if (S>0){
-              sigL = axial - Mf/S;
-              sigR = axial + Mf/S;
+            const axial = N/A;
+            if (info.mode === 'axial' || S<=0){
+              sigL = sigR = axial; // bar: axial only
             } else {
-              sigL = sigR = axial;
+              sigL = axial - M/S;
+              sigR = axial + M/S;
             }
           }
           sL.push(sigL); sR.push(sigR);
@@ -775,17 +773,19 @@
         stress[mem.id] = { pts, sL, sR };
       }
 
-      lastSolution = { Ufull:U, dofMap:build.dofMap, anodes:build.anodes, sublines, reactions:R, stress, memberSubs };
+      lastSolution = { Ufull:U, dofMap:build.dofMap, anodes:build.anodes, sublines, reactions:R, stress, memberSubs:build.memberSubs };
 
+      // primary node displacements
       lastSolution.primaryRes = nodes.map(n=>{
         const b = build.dofMap.primary[n.id];
         return { id:n.id, ux:round6(U[b+0]), uy:round6(U[b+1]), th:round6(U[b+2]) };
       });
       showResults(lastSolution.primaryRes);
 
-      // auto deflection scale (~20% of bbox)
-      const bbox = modelBounds();
+      // Auto deflection scale (20% rule)
+      const bbox = modelBounds(); // in canvas px
       const Lref = Math.max(bbox.w, bbox.h) || 1;
+
       let maxDisp=0;
       for (const aidStr of Object.keys(lastSolution.anodes)){
         const aid = parseInt(aidStr,10);
@@ -814,7 +814,7 @@
     }
   }
 
-  // Build FEM model (with axial-only θ identification)
+  // Build FEM model (mix beams & bars)
   function buildAnalysisModel(DIV){
     const anodes = {};
     const dofMap = { primary:{}, analysis:{} };
@@ -830,8 +830,11 @@
     const memberSubs = {};
     const elems = [];
 
-    // Track which analysis nodes touch any BEAM (bending-capable) element
-    const hasBeamAt = {};  // aid -> true if any bending element connects here
+    // Track nodes that connect only axial bars -> we can constrain θ safely
+    const axialTouchCount = new Map(); // analysis node id -> count of axial connections
+    const totalTouchCount  = new Map();
+
+    function bump(map, key){ map.set(key, (map.get(key)||0)+1); }
 
     for (const m of members){
       const ni = getAnalysisIdForPrimary(m.n1, anodes);
@@ -839,9 +842,9 @@
       const pi = anodes[ni], pj = anodes[nj];
       const dx = pj.x_up - pi.x_up, dy = pj.y_up - pi.y_up;
       const L = Math.hypot(dx,dy); if (L<1e-9) continue;
+      const c = dx/L, s = dy/L;
 
-      // Member is axial-only if BOTH ends are released
-      const memberIsAxialOnly = !!m.release_i && !!m.release_j;
+      const isBar = !!(m.release_i && m.release_j);
 
       const subNodes=[ni];
       for (let k=1; k<=DIV; k++){
@@ -854,40 +857,83 @@
       subNodes.push(nj);
       memberSubs[m.id]=subNodes;
 
-      for (let s=0; s<subNodes.length-1; s++){
-        const a=subNodes[s], b=subNodes[s+1];
+      // segment loads averaged per sub-element
+      for (let sidx=0; sidx<subNodes.length-1; sidx++){
+        const a=subNodes[sidx], b=subNodes[sidx+1];
         const aP=anodes[a], bP=anodes[b];
         const segLen = Math.hypot(bP.x_up-aP.x_up, bP.y_up-aP.y_up);
-        const c = (bP.x_up-aP.x_up)/segLen, sgn = (bP.y_up-aP.y_up)/segLen;
+        const cc = (bP.x_up-aP.x_up)/segLen, ss = (bP.y_up-aP.y_up)/segLen;
 
         const DIVs=subNodes.length-1;
-        const t0 = s/(DIVs), t1 = (s+1)/(DIVs);
+        const t0 = sidx/(DIVs), t1 = (sidx+1)/(DIVs);
         const qx0 = lerp(m.qix, m.qjx, t0), qx1 = lerp(m.qix, m.qjx, t1);
         const qy0 = lerp(m.qiy, m.qjy, t0), qy1 = lerp(m.qiy, m.qjy, t1);
         const sw  = (m.wd||0)*(m.A||0);
+
         const qx_avg = 0.5*(qx0+qx1);
         const qy_avg = 0.5*(qy0+qy1) - sw;
 
-        const p =  c*qx_avg + sgn*qy_avg;
-        const w = -sgn*qx_avg + c*qy_avg;
+        // local uniform p,w
+        const p =  cc*qx_avg + ss*qy_avg;     // axial per length (local x)
+        let   w = -ss*qx_avg + cc*qy_avg;     // transverse per length (local y, +left)
 
-        const rel_i=(s===0)&&!!m.release_i, rel_j=(s===subNodes.length-2)&&!!m.release_j;
+        // If this member is a bar (pin-pin), it has NO transverse stiffness:
+        // ignore transverse distributed load for assembly.
+        if (isBar) w = 0;
 
-        const mode = memberIsAxialOnly ? 'axial' : 'beam';
-
-        elems.push({ i:a, j:b, L:segLen, c, s:sgn, E:m.E||0, A:m.A||0, I:m.I||0,
-                     memId:m.id, p, w, rel_i, rel_j, mode });
-
-        if (!memberIsAxialOnly) { hasBeamAt[a] = true; hasBeamAt[b] = true; }
+        elems.push({
+          i:a, j:b, L:segLen, c:cc, s:ss, E:m.E||0, A:m.A||0, I:m.I||0,
+          memId:m.id, p, w, rel_i:(sidx===0)&&!!m.release_i, rel_j:(sidx===subNodes.length-2)&&!!m.release_j,
+          mode: isBar ? 'axial' : 'frame'
+        });
       }
+
+      // touch-count bookkeeping for θ-only nodes
+      bump(totalTouchCount, ni); bump(totalTouchCount, nj);
+      if (isBar){ bump(axialTouchCount, ni); bump(axialTouchCount, nj); }
+    }
+
+    const axialOnlyThetaNodes = [];
+    for (const [aid, tot] of totalTouchCount.entries()){
+      const ax = axialTouchCount.get(aid)||0;
+      if (ax>0 && ax===tot){ axialOnlyThetaNodes.push(aid); }
     }
 
     const N = Object.keys(anodes).length * 3;
     const K = zeros(N,N);
     const F = zeros(N);
 
-    // Assembly
+    // === Assembly (mix) ===
     for (const el of elems){
+      const ib = dofMap.analysis[el.i], jb = dofMap.analysis[el.j];
+      const fullMap = [ib+0, ib+1, ib+2, jb+0, jb+1, jb+2];
+
+      if (el.mode === 'axial'){
+        // true truss bar (pin-pin) — 4x4 placed into 6x6 slot
+        const EA = (el.E || 0) * (el.A || 0);
+        const L  = el.L || 1e-9;
+        const c = el.c, s = el.s;
+        const k = (EA / L);
+        const k4 = [
+          [ k*c*c,  k*c*s, -k*c*c, -k*c*s ],
+          [ k*c*s,  k*s*s, -k*c*s, -k*s*s ],
+          [-k*c*c, -k*c*s,  k*c*c,  k*c*s ],
+          [-k*c*s, -k*s*s,  k*c*s,  k*s*s ],
+        ];
+        const kG = [
+          [k4[0][0], k4[0][1], 0, k4[0][2], k4[0][3], 0],
+          [k4[1][0], k4[1][1], 0, k4[1][2], k4[1][3], 0],
+          [0,        0,        0, 0,        0,        0],
+          [k4[2][0], k4[2][1], 0, k4[2][2], k4[2][3], 0],
+          [k4[3][0], k4[3][1], 0, k4[3][2], k4[3][3], 0],
+          [0,        0,        0, 0,        0,        0],
+        ];
+        addToGlobalVar(K, kG, fullMap);
+        // no fixed-end loads for bars
+        continue;
+      }
+
+      // regular frame (with possible end release by condensation)
       const kLocal = frameKLocal(el.E, el.A, el.I, el.L);
       const T = frameT(el.c, el.s);
       let kG = numeric.dot(numeric.transpose(T), numeric.dot(kLocal, T));
@@ -899,36 +945,65 @@
       const relIdx=[];
       if (el.rel_i) relIdx.push(2);
       if (el.rel_j) relIdx.push(5);
+
       if (relIdx.length){
         const {Keff, feff} = condenseDOFs(kG, fG, relIdx);
         kG=Keff; fG=feff;
+        const keptMap = keptMapFromRemoved(fullMap, relIdx);
+        addToGlobalVar(K, kG, keptMap);
+        addToGlobalVecVar(F, fG, keptMap);
+      } else {
+        addToGlobalVar(K, kG, fullMap);
+        addToGlobalVecVar(F, fG, fullMap);
       }
-
-      const ib = dofMap.analysis[el.i], jb = dofMap.analysis[el.j];
-      const fullMap=[ib+0, ib+1, ib+2, jb+0, jb+1, jb+2];
-      const kept = (relIdx.length)? keptMapFromRemoved(fullMap, relIdx) : fullMap;
-
-      addToGlobalVar(K, kG, kept);
-      addToGlobalVecVar(F, fG, kept);
     }
-
-    // Identify analysis nodes that have no beam elements connected (axial-only)
-    const axialOnlyThetaNodes = Object.keys(anodes)
-      .map(id => parseInt(id,10))
-      .filter(aid => !hasBeamAt[aid]);
 
     return { N, dofMap, anodes, F, K, memberSubs, elems, axialOnlyThetaNodes };
   }
 
+  // Internal forces → M,N along each member (local)
   function elementEndForces(U, build){
-    const perElem=[];
     const perMember={};
     for (const el of build.elems){
-      const kLocal = frameKLocal(el.E, el.A, el.I, el.L);
-      const T = frameT(el.c, el.s);
-
       const ib = build.dofMap.analysis[el.i], jb=build.dofMap.analysis[el.j];
       const dGlob=[ U[ib+0],U[ib+1],U[ib+2], U[jb+0],U[jb+1],U[jb+2] ];
+
+      if (el.mode === 'axial'){
+        // truss: use 2D bar k(4x4) * d(4), no fixed-end loads
+        const c=el.c, s=el.s, L=el.L, EA=(el.E||0)*(el.A||0);
+        const k = (EA/(L||1e-9));
+        const k4 = [
+          [ k*c*c,  k*c*s, -k*c*c, -k*c*s ],
+          [ k*c*s,  k*s*s, -k*c*s, -k*s*s ],
+          [-k*c*c, -k*c*s,  k*c*c,  k*c*s ],
+          [-k*c*s, -k*s*s,  k*c*s,  k*s*s ],
+        ];
+        const d4 = [dGlob[0], dGlob[1], dGlob[3], dGlob[4]]; // [ui,vi, uj,vj]
+        const f4 = numeric.dot(k4, d4);
+        // axial forces at ends in local x: transform to local then read Nx
+        // local transform (2x2 for each node)
+        const T2 = [[ c, s ], [ -s, c ]]; // global->local for displacements (pos x along member)
+        const ui_loc = numeric.dot(T2, [dGlob[0], dGlob[1]])[0];
+        const uj_loc = numeric.dot(T2, [dGlob[3], dGlob[4]])[0];
+        const Nlocal = k*(uj_loc - ui_loc); // constant along bar
+        // register into perMember
+        const memId = el.memId;
+        const sub = build.memberSubs[memId];
+        if (!perMember[memId]){
+          perMember[memId] = { nodes: sub.slice(), M: new Array(sub.length).fill(0), N: new Array(sub.length).fill(0), mode:'axial' };
+        }
+        const info = perMember[memId];
+        // constant N along the two sub nodes of this element
+        const idx_i = sub.indexOf(el.i);
+        const idx_j = sub.indexOf(el.j);
+        if (idx_i>=0) info.N[idx_i] += Nlocal;
+        if (idx_j>=0) info.N[idx_j] += Nlocal;
+        continue;
+      }
+
+      // frame element
+      const kLocal = frameKLocal(el.E, el.A, el.I, el.L);
+      const T = frameT(el.c, el.s);
       const dLoc = numeric.dot(T, dGlob);
 
       const fFixed = [ el.p*el.L/2, el.w*el.L/2,  el.w*el.L*el.L/12,
@@ -936,35 +1011,36 @@
 
       let fLoc = numeric.sub(numeric.dot(kLocal, dLoc), fFixed);
 
+      // zero end moments at released ends (internal hinges)
       if (el.rel_i) fLoc[2]=0;
       if (el.rel_j) fLoc[5]=0;
-
-      perElem.push({el, fLoc});
 
       const memId = el.memId;
       const sub = build.memberSubs[memId];
       if (!perMember[memId]){
-        perMember[memId] = { nodes: sub.slice(), M: new Array(sub.length).fill(0), N: new Array(sub.length).fill(0), cnt:new Array(sub.length).fill(0) };
+        perMember[memId] = { nodes: sub.slice(), M: new Array(sub.length).fill(0), N: new Array(sub.length).fill(0), cnt:new Array(sub.length).fill(0), mode:'frame' };
       }
       const info = perMember[memId];
 
       const idx_i = sub.indexOf(el.i);
       const idx_j = sub.indexOf(el.j);
+
       const Ni = fLoc[0], Mi = fLoc[2];
       const Nj = -fLoc[3], Mj = -fLoc[5];
 
-      info.M[idx_i] += Mi; info.cnt[idx_i] += 1;
-      info.M[idx_j] += Mj; info.cnt[idx_j] += 1;
-
-      info.N[idx_i] += Ni; info.N[idx_j] += Nj;
+      if (idx_i>=0){ info.M[idx_i] += Mi; info.N[idx_i] += Ni; info.cnt[idx_i] = (info.cnt[idx_i]||0)+1; }
+      if (idx_j>=0){ info.M[idx_j] += Mj; info.N[idx_j] += Nj; info.cnt[idx_j] = (info.cnt[idx_j]||0)+1; }
     }
+    // average M at shared subnodes (frames)
     for (const memId of Object.keys(perMember)){
       const info=perMember[memId];
-      for (let k=0;k<info.nodes.length;k++){
-        if (info.cnt[k]>0){ info.M[k] /= info.cnt[k]; }
+      if (info.mode==='frame' && info.cnt){
+        for (let k=0;k<info.nodes.length;k++){
+          if (info.cnt[k]>0){ info.M[k] /= info.cnt[k]; }
+        }
       }
     }
-    return { perElem, perMember };
+    return { perMember };
   }
 
   // ===== Stress Panel =====
@@ -979,6 +1055,7 @@
     const st = lastSolution.stress[selectedMemberId];
     if (!st){ spx.fillText('Selected member has no stress data.', 10, 20); return; }
 
+    // Build x (0..L) along member
     const xs=[0]; let Lsum=0;
     for (let i=1;i<st.pts.length;i++){
       const x0=st.pts[i-1].x_up, y0=st.pts[i-1].y_up, x1=st.pts[i].x_up, y1=st.pts[i].y_up;
@@ -986,6 +1063,7 @@
       xs.push(Lsum);
     }
 
+    // UI convention
     const SLp = st.sL.map(v => -v);
     const SRp = st.sR.map(v => -v);
 
@@ -1033,6 +1111,7 @@
       [ s,  c, 0,  0,  0, 0 ],
       [ 0,  0, 1,  0,  0, 0 ],
       [ 0,  0, 0,  c, -s, 0 ],
+      [ 0,  0, 0,  s,  c, 0 ],
       [ 0,  0, 0,  0,  0, 1 ],
     ];
   }
@@ -1093,6 +1172,7 @@
     return {x0:minx, y0:miny, w:(maxx-minx)||1, h:(maxy-miny)||1};
   }
 
+  // Small drawing helpers
   function drawArrow(g, x1,y1, x2,y2){
     g.beginPath(); g.moveTo(x1,y1); g.lineTo(x2,y2); g.stroke();
     const ang=Math.atan2(y2-y1, x2-x1), ah=7;
@@ -1177,4 +1257,5 @@
 </script>
 </body>
 </html>
+
 
