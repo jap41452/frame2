@@ -1,43 +1,45 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>FrameX — Draw • BCs • q-Loads • End Releases • Solve • Stress Panel</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/numeric/1.2.6/numeric.min.js"></script>
-  <style>
-    :root { --pad:18px; --canvas-w:980px; --canvas-h:560px; --panel-w:380px; }
-    body { background:#f6f7fb; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; margin:20px; }
-    h2 { margin:0 0 10px; }
-    .row { display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; }
-    .col { background:#fff; border:1px solid #ddd; border-radius:12px; padding:var(--pad); }
-    .controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
-    button, select, input[type="number"], input[type="text"] {
-      height:32px; padding:0 10px; border:1px solid #bbb; border-radius:8px; background:#eee; font-size:14px; color:#333;
-    }
-    button { cursor:pointer; }
-    button.primary { background:#eee; color:#333; border-color:#bbb; }
-    button.ghost   { background:#eee; color:#333; border-color:#bbb; }
-    button.active  { background:#4b5563; color:#fff; border-color:#4b5563; }
+<meta charset="UTF-8" />
+<title>FrameX — Draw • BCs • q-Loads • End Releases • Solve • Stress Panel</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/numeric/1.2.6/numeric.min.js"></script>
 
-    .stack { display:flex; flex-direction:column; gap:8px; }
-    #wrap { position:relative; width:var(--canvas-w); height:var(--canvas-h); background:#fff; border:1px solid #ccc; border-radius:8px; }
-    canvas { position:absolute; inset:0; }
-    #base { z-index:1; }
-    #overlay { z-index:2; pointer-events:auto; cursor:crosshair; }
+<style>
+  :root { --pad:18px; --canvas-w:980px; --canvas-h:560px; --panel-w:380px; }
+  body { background:#f6f7fb; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; margin:20px; }
+  h2 { margin:0 0 10px; }
+  .row { display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; }
+  .col { background:#fff; border:1px solid #ddd; border-radius:12px; padding:var(--pad); }
+  .controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
+  button, select, input[type="number"], input[type="text"] {
+    height:32px; padding:0 10px; border:1px solid #bbb; border-radius:8px; background:#eee; font-size:14px; color:#333;
+  }
+  button { cursor:pointer; }
+  button.primary { background:#eee; color:#333; border-color:#bbb; }
+  button.ghost   { background:#eee; color:#333; border-color:#bbb; }
+  button.active  { background:#4b5563; color:#fff; border-color:#4b5563; }
 
-    .panel { width:var(--panel-w); }
-    .list { font-size:13px; max-height:220px; overflow:auto; border:1px dashed #ddd; padding:8px; border-radius:8px; }
-    .hint { color:#666; font-size:12px; }
-    .mode { font-weight:600; }
-    .swal2-popup { font-size:12px !important; width:auto !important; min-width:360px !important; }
-    .swal2-input, .swal2-select { font-size:12px !important; height:28px !important; }
+  .stack { display:flex; flex-direction:column; gap:8px; }
+  #wrap { position:relative; width:var(--canvas-w); height:var(--canvas-h); background:#fff; border:1px solid #ccc; border-radius:8px; }
+  canvas { position:absolute; inset:0; }
+  #base { z-index:1; }
+  #overlay { z-index:2; pointer-events:auto; cursor:crosshair; }
 
-    #stressPanelBlock { display:none; }
-    #stressPanel { width:100%; height:260px; position:static; border:1px solid #ccc; border-radius:8px; }
-  </style>
+  .panel { width:var(--panel-w); }
+  .list { font-size:13px; max-height:220px; overflow:auto; border:1px dashed #ddd; padding:8px; border-radius:8px; }
+  .hint { color:#666; font-size:12px; }
+  .mode { font-weight:600; }
+  .swal2-popup { font-size:12px !important; width:auto !important; min-width:360px !important; }
+  .swal2-input, .swal2-select { font-size:12px !important; height:28px !important; }
+
+  #stressPanelBlock { display:none; }
+  #stressPanel { width:100%; height:260px; position:static; border:1px solid #ccc; border-radius:8px; }
+</style>
 </head>
+
 <body>
   <h2>FrameX — Draw • BCs • q-Loads • End Releases • Solve • Stress Panel</h2>
 
@@ -66,11 +68,10 @@
 
         <button id="btnSolve" class="primary">Solve</button>
 
-        <button class="ghost" disabled>Deflection Scale</button>
+        <button class="ghost" disabled>Defl scale</button>
         <input id="defScale" type="number" step="any" value="1" style="width:80px;">
-        <button class="ghost" disabled>Segment Divisions</button>
+        <button class="ghost" disabled>Divisions</button>
         <input id="divCount" type="number" min="1" max="50" value="10" style="width:70px;">
-
         <button id="btnResetView" class="ghost">Reset View</button>
       </div>
     </div>
@@ -212,11 +213,9 @@
     refreshLists(); draw();
   }
 
-  // Canvas ↔ analysis Y
   const yUp = yCanvas => base.height - yCanvas;
   const yCanvas = yUpVal => base.height - yUpVal;
 
-  // ===== Active button helpers =====
   const modeBtns = ['btnDraw','btnSelect'];
   const viewBtns = ['viewGeom','viewDef','viewStressPanel'];
   function setActiveGroup(ids, activeId){
@@ -504,7 +503,7 @@
     }).then(res=>{ if (res.isConfirmed){ Object.assign(m,res.value); refreshLists(); draw(); }});
   }
 
-  // ===== BC glyph preview =====
+  // BC glyph
   function drawBCGlyph(g, bc){
     g.clearRect(0,0,g.canvas.width,g.canvas.height);
     g.save();
@@ -635,7 +634,7 @@
     g.restore();
   }
 
-  // ===== q-load graphics =====
+  // q-load graphics
   function computeQScale(){
     let maxQx=0, maxQy=0;
     for (const m of members){
@@ -703,12 +702,17 @@
         F[b+0] += n.Fx; F[b+1] += n.Fy; F[b+2] += n.M;
       }
 
-      // BCs
+      // BCs (primary)
       const constrained = new Set();
       for (const n of nodes){
         const b = dofMap.primary[n.id]; if (b===undefined) continue;
         if (n.bc==='fixed'){ constrained.add(b+0); constrained.add(b+1); constrained.add(b+2); }
         else if (n.bc==='simple'){ constrained.add(b+0); constrained.add(b+1); } // u=v=0
+      }
+
+      // NEW: kill θ at analysis nodes that belong only to axial members
+      for (const aid of build.axialOnlyThetaNodes) {
+        constrained.add( (aid - 1)*3 + 2 );
       }
 
       const allIdx = [...Array(N).keys()];
@@ -728,7 +732,7 @@
       const KU = numeric.dot(K, U);
       const R = KU.map((v,i)=>v - F[i]);
 
-      // Deformed sublines (for viewDef)
+      // Deformed sublines
       const sublines = [];
       for (const mem of members){
         const poly = [];
@@ -743,7 +747,7 @@
       }
 
       // Internal forces -> stresses
-      const mf = elementEndForces(U, build); // per member M,N at subnodes
+      const mf = elementEndForces(U, build);
       const stress = {};
       for (const mem of members){
         const info = mf.perMember[mem.id]; if (!info) continue;
@@ -753,16 +757,16 @@
         for (let idx=0; idx<sub.length; idx++){
           const aid = sub[idx];
           const np = build.anodes[aid];
-          const N = info.N[idx]||0;
-          const M = info.M[idx]||0;             // will be 0 for axial-only spans
+          const Nf = info.N[idx]||0;
+          const Mf = info.M[idx]||0;
           let sigL=0, sigR=0;
           if (A>0){
-            const axial = N/A;
+            const axial = Nf/A;
             if (S>0){
-              sigL = axial - M/S;  // left (+local y)
-              sigR = axial + M/S;  // right (−local y)
+              sigL = axial - Mf/S;
+              sigR = axial + Mf/S;
             } else {
-              sigL = sigR = axial; // fallback / axial-only
+              sigL = sigR = axial;
             }
           }
           sL.push(sigL); sR.push(sigR);
@@ -773,17 +777,15 @@
 
       lastSolution = { Ufull:U, dofMap:build.dofMap, anodes:build.anodes, sublines, reactions:R, stress, memberSubs };
 
-      // primary node displacements
       lastSolution.primaryRes = nodes.map(n=>{
         const b = build.dofMap.primary[n.id];
         return { id:n.id, ux:round6(U[b+0]), uy:round6(U[b+1]), th:round6(U[b+2]) };
       });
       showResults(lastSolution.primaryRes);
 
-      // Auto deflection scale (~20% of model size)
-      const bbox = modelBounds(); // in canvas px
+      // auto deflection scale (~20% of bbox)
+      const bbox = modelBounds();
       const Lref = Math.max(bbox.w, bbox.h) || 1;
-
       let maxDisp=0;
       for (const aidStr of Object.keys(lastSolution.anodes)){
         const aid = parseInt(aidStr,10);
@@ -812,7 +814,7 @@
     }
   }
 
-  // ===== Build FEM model =====
+  // Build FEM model (with axial-only θ identification)
   function buildAnalysisModel(DIV){
     const anodes = {};
     const dofMap = { primary:{}, analysis:{} };
@@ -827,12 +829,19 @@
 
     const memberSubs = {};
     const elems = [];
+
+    // Track which analysis nodes touch any BEAM (bending-capable) element
+    const hasBeamAt = {};  // aid -> true if any bending element connects here
+
     for (const m of members){
       const ni = getAnalysisIdForPrimary(m.n1, anodes);
       const nj = getAnalysisIdForPrimary(m.n2, anodes);
       const pi = anodes[ni], pj = anodes[nj];
       const dx = pj.x_up - pi.x_up, dy = pj.y_up - pi.y_up;
       const L = Math.hypot(dx,dy); if (L<1e-9) continue;
+
+      // Member is axial-only if BOTH ends are released
+      const memberIsAxialOnly = !!m.release_i && !!m.release_j;
 
       const subNodes=[ni];
       for (let k=1; k<=DIV; k++){
@@ -851,29 +860,25 @@
         const segLen = Math.hypot(bP.x_up-aP.x_up, bP.y_up-aP.y_up);
         const c = (bP.x_up-aP.x_up)/segLen, sgn = (bP.y_up-aP.y_up)/segLen;
 
-        // average loads for this sub-element (global)
         const DIVs=subNodes.length-1;
         const t0 = s/(DIVs), t1 = (s+1)/(DIVs);
         const qx0 = lerp(m.qix, m.qjx, t0), qx1 = lerp(m.qix, m.qjx, t1);
         const qy0 = lerp(m.qiy, m.qjy, t0), qy1 = lerp(m.qiy, m.qjy, t1);
-        const sw  = (m.wd||0)*(m.A||0); // self-weight per length
+        const sw  = (m.wd||0)*(m.A||0);
         const qx_avg = 0.5*(qx0+qx1);
         const qy_avg = 0.5*(qy0+qy1) - sw;
 
-        // local uniform p,w
-        const p =  c*qx_avg + sgn*qy_avg;     // axial per length (local x)
-        const w = -sgn*qx_avg + c*qy_avg;     // transverse per length (local y, +left)
+        const p =  c*qx_avg + sgn*qy_avg;
+        const w = -sgn*qx_avg + c*qy_avg;
 
-        // ★ Decide element behavior
-        const eps = 1e-12;
-        const axialOnly = (m.release_i && m.release_j && Math.abs(w) < eps);
+        const rel_i=(s===0)&&!!m.release_i, rel_j=(s===subNodes.length-2)&&!!m.release_j;
 
-        elems.push({
-          i:a, j:b, L:segLen, c, s:sgn, E:m.E||0, A:m.A||0, I:m.I||0,
-          memId:m.id, p, w,
-          rel_i:(s===0)&&!!m.release_i, rel_j:(s===subNodes.length-2)&&!!m.release_j,
-          mode: axialOnly ? 'axial' : 'beam'  // ★
-        });
+        const mode = memberIsAxialOnly ? 'axial' : 'beam';
+
+        elems.push({ i:a, j:b, L:segLen, c, s:sgn, E:m.E||0, A:m.A||0, I:m.I||0,
+                     memId:m.id, p, w, rel_i, rel_j, mode });
+
+        if (!memberIsAxialOnly) { hasBeamAt[a] = true; hasBeamAt[b] = true; }
       }
     }
 
@@ -883,30 +888,17 @@
 
     // Assembly
     for (const el of elems){
-      // ★ Choose stiffness & fixed-end vector by mode
-      let kLocal, fLoc;
-      if (el.mode === 'axial'){
-        kLocal = frameKLocalAxial(el.E, el.A, el.L);
-        fLoc   = [ el.p*el.L/2, 0,0,  el.p*el.L/2, 0,0 ];
-      } else {
-        kLocal = frameKLocal(el.E, el.A, el.I, el.L);
-        fLoc   = [
-          el.p*el.L/2, el.w*el.L/2,  el.w*el.L*el.L/12,
-          el.p*el.L/2, el.w*el.L/2, -el.w*el.L*el.L/12
-        ];
-      }
-
+      const kLocal = frameKLocal(el.E, el.A, el.I, el.L);
       const T = frameT(el.c, el.s);
       let kG = numeric.dot(numeric.transpose(T), numeric.dot(kLocal, T));
+
+      const fLoc=[ el.p*el.L/2, el.w*el.L/2,  el.w*el.L*el.L/12,
+                   el.p*el.L/2, el.w*el.L/2, -el.w*el.L*el.L/12 ];
       let fG = numeric.dot(numeric.transpose(T), fLoc);
 
-      // End releases (only meaningful for BEAM mode)
       const relIdx=[];
-      if (el.mode !== 'axial'){
-        if (el.rel_i) relIdx.push(2);
-        if (el.rel_j) relIdx.push(5);
-      }
-
+      if (el.rel_i) relIdx.push(2);
+      if (el.rel_j) relIdx.push(5);
       if (relIdx.length){
         const {Keff, feff} = condenseDOFs(kG, fG, relIdx);
         kG=Keff; fG=feff;
@@ -920,41 +912,32 @@
       addToGlobalVecVar(F, fG, kept);
     }
 
-    return { N, dofMap, anodes, F, K, memberSubs, elems };
+    // Identify analysis nodes that have no beam elements connected (axial-only)
+    const axialOnlyThetaNodes = Object.keys(anodes)
+      .map(id => parseInt(id,10))
+      .filter(aid => !hasBeamAt[aid]);
+
+    return { N, dofMap, anodes, F, K, memberSubs, elems, axialOnlyThetaNodes };
   }
 
-  // ===== Internal forces → M,N along each member (local)
   function elementEndForces(U, build){
     const perElem=[];
     const perMember={};
     for (const el of build.elems){
-      let kLocal, fFixed;
-
-      if (el.mode === 'axial'){ // ★ axial-only
-        kLocal = frameKLocalAxial(el.E, el.A, el.L);
-        fFixed = [ el.p*el.L/2, 0,0,  el.p*el.L/2, 0,0 ];
-      } else {                  // beam
-        kLocal = frameKLocal(el.E, el.A, el.I, el.L);
-        fFixed = [ el.p*el.L/2, el.w*el.L/2,  el.w*el.L*el.L/12,
-                   el.p*el.L/2, el.w*el.L/2, -el.w*el.L*el.L/12 ];
-      }
-
+      const kLocal = frameKLocal(el.E, el.A, el.I, el.L);
       const T = frameT(el.c, el.s);
 
       const ib = build.dofMap.analysis[el.i], jb=build.dofMap.analysis[el.j];
       const dGlob=[ U[ib+0],U[ib+1],U[ib+2], U[jb+0],U[jb+1],U[jb+2] ];
       const dLoc = numeric.dot(T, dGlob);
 
+      const fFixed = [ el.p*el.L/2, el.w*el.L/2,  el.w*el.L*el.L/12,
+                       el.p*el.L/2, el.w*el.L/2, -el.w*el.L*el.L/12 ];
+
       let fLoc = numeric.sub(numeric.dot(kLocal, dLoc), fFixed);
 
-      // zero end moments at released ends (only for beam)
-      if (el.mode !== 'axial'){
-        if (el.rel_i) fLoc[2]=0;
-        if (el.rel_j) fLoc[5]=0;
-      } else {
-        // ensure no spurious moment
-        fLoc[2]=0; fLoc[5]=0;
-      }
+      if (el.rel_i) fLoc[2]=0;
+      if (el.rel_j) fLoc[5]=0;
 
       perElem.push({el, fLoc});
 
@@ -967,8 +950,8 @@
 
       const idx_i = sub.indexOf(el.i);
       const idx_j = sub.indexOf(el.j);
-      const Ni = fLoc[0], Mi = (el.mode==='axial') ? 0 : fLoc[2];
-      const Nj = -fLoc[3], Mj = (el.mode==='axial') ? 0 : -fLoc[5];
+      const Ni = fLoc[0], Mi = fLoc[2];
+      const Nj = -fLoc[3], Mj = -fLoc[5];
 
       info.M[idx_i] += Mi; info.cnt[idx_i] += 1;
       info.M[idx_j] += Mj; info.cnt[idx_j] += 1;
@@ -996,7 +979,6 @@
     const st = lastSolution.stress[selectedMemberId];
     if (!st){ spx.fillText('Selected member has no stress data.', 10, 20); return; }
 
-    // Build x (0..L) along member
     const xs=[0]; let Lsum=0;
     for (let i=1;i<st.pts.length;i++){
       const x0=st.pts[i-1].x_up, y0=st.pts[i-1].y_up, x1=st.pts[i].x_up, y1=st.pts[i].y_up;
@@ -1004,7 +986,6 @@
       xs.push(Lsum);
     }
 
-    // Flip sign for plotting (UI convention)
     const SLp = st.sL.map(v => -v);
     const SRp = st.sR.map(v => -v);
 
@@ -1019,19 +1000,15 @@
     const xMap = x => left + (w-left-right)*(x/Lsum || 0);
     const yMap = s => (h-bot) - (h-top-bot) * ((s - minS) / (maxS - minS || 1));
 
-    // zero line
     const y0 = yMap(0); spx.strokeStyle='#ddd'; spx.setLineDash([4,4]);
     spx.beginPath(); spx.moveTo(left, y0); spx.lineTo(w-right, y0); spx.stroke(); spx.setLineDash([]);
 
-    // SL curve (red)
     spx.strokeStyle='#ef4444'; spx.beginPath();
     for (let i=0;i<xs.length;i++){ const x=xMap(xs[i]), y=yMap(SLp[i]); if (i===0) spx.moveTo(x,y); else spx.lineTo(x,y); } spx.stroke();
-    // SR curve (blue)
     spx.strokeStyle='#3b82f6'; spx.beginPath();
     for (let i=0;i<xs.length;i++){ const x=xMap(xs[i]), y=yMap(SRp[i]); if (i===0) spx.moveTo(x,y); else spx.lineTo(x,y); } spx.stroke();
 
-    spx.fillStyle='#666';
-    spx.fillText(`${minS.toFixed(3)}`, 6, yMap(minS)+4);
+    spx.fillStyle='#666'; spx.fillText(`${minS.toFixed(3)}`, 6, yMap(minS)+4);
     spx.fillText(`${maxS.toFixed(3)}`, 6, yMap(maxS)+4);
     spx.fillText(`Member ${selectedMemberId}`, left+6, top+12);
     spx.restore();
@@ -1050,27 +1027,12 @@
       [ 0,      6*EI/L2,    2*EI/L,     0,    -6*EI/L2,    4*EI/L ]
     ];
   }
-
-  // ★ Axial-only local stiffness (EA only; rows/cols for v,θ are zeros)
-  function frameKLocalAxial(E, A, L){
-    const EA = (E||0)*(A||0);
-    return [
-      [ EA/L, 0,0, -EA/L, 0,0 ],
-      [ 0,    0,0,  0,    0,0 ],
-      [ 0,    0,0,  0,    0,0 ],
-      [ -EA/L,0,0,  EA/L, 0,0 ],
-      [ 0,    0,0,  0,    0,0 ],
-      [ 0,    0,0,  0,    0,0 ],
-    ];
-  }
-
   function frameT(c,s){
     return [
       [ c, -s, 0,  0,  0, 0 ],
       [ s,  c, 0,  0,  0, 0 ],
       [ 0,  0, 1,  0,  0, 0 ],
       [ 0,  0, 0,  c, -s, 0 ],
-      [ 0,  0, 0,  s,  c, 0 ],
       [ 0,  0, 0,  0,  0, 1 ],
     ];
   }
@@ -1131,7 +1093,6 @@
     return {x0:minx, y0:miny, w:(maxx-minx)||1, h:(maxy-miny)||1};
   }
 
-  // Small drawing helpers
   function drawArrow(g, x1,y1, x2,y2){
     g.beginPath(); g.moveTo(x1,y1); g.lineTo(x2,y2); g.stroke();
     const ang=Math.atan2(y2-y1, x2-x1), ah=7;
@@ -1216,3 +1177,4 @@
 </script>
 </body>
 </html>
+
