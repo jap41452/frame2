@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>FrameX — Mixed Beams & Bars with End Releases</title>
+<title>FrameX — Draw • BCs • q-Loads • End Releases • Solve • Stress Panel</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/numeric/1.2.6/numeric.min.js"></script>
@@ -28,8 +28,10 @@
   .panel { width:var(--panel-w); }
   .list { font-size:13px; max-height:220px; overflow:auto; border:1px dashed #ddd; padding:8px; border-radius:8px; }
   .hint { color:#666; font-size:12px; }
+  .mode { font-weight:600; }
   .swal2-popup { font-size:12px !important; width:auto !important; min-width:360px !important; }
   .swal2-input, .swal2-select { font-size:12px !important; height:28px !important; }
+  /* Side Stress Panel */
   #stressPanelBlock { display:none; }
   #stressPanel { width:100%; height:260px; position:static; border:1px solid #ccc; border-radius:8px; }
 </style>
@@ -38,6 +40,7 @@
   <h2>FrameX — Draw • BCs • q-Loads • End Releases • Solve • Stress Panel</h2>
 
   <div class="controls">
+    <span class="mode">Mode:</span>
     <button id="btnDraw" class="primary">Draw Members</button>
     <button id="btnSelect" class="ghost">Select/Edit</button>
 
@@ -54,7 +57,6 @@
         <canvas id="base" width="980" height="560"></canvas>
         <canvas id="overlay" width="980" height="560"></canvas>
       </div>
-
       <div class="controls" style="margin-top:10px; gap:12px;">
         <button id="btnUndo" class="ghost">Undo</button>
         <button id="btnClear" class="ghost">Clear</button>
@@ -62,10 +64,8 @@
 
         <button id="btnSolve" class="primary">Solve</button>
 
-        <button class="ghost" disabled>Deflection Scale</button>
-        <input id="defScale" type="number" step="any" value="1" style="width:80px;">
-        <button class="ghost" disabled>Segment Divisions</button>
-        <input id="divCount" type="number" min="1" max="50" value="10" style="width:70px;">
+        <label>Defl scale</label><input id="defScale" type="number" step="any" value="1" style="width:80px;">
+        <label>Divisions</label><input id="divCount" type="number" min="1" max="50" value="10" style="width:70px;">
         <button id="btnResetView" class="ghost">Reset View</button>
       </div>
     </div>
@@ -95,6 +95,7 @@
         <div id="resultList" class="list"></div>
       </div>
 
+      <!-- Stress Panel docked in sidebar -->
       <div id="stressPanelBlock">
         <div class="controls" style="justify-content:space-between;">
           <strong>Stress Panel</strong>
@@ -129,7 +130,7 @@
   let units = 'US';        // display only
 
   let nodes = [];          // {id,x,y, bc, Fx,Fy,M,Kx,Ky}
-  let members = [];        // {id,n1,n2,E,A,I,S,c,wd,qix,qjx,qiy,qjy,release_i,release_j,label}
+  let members = [];        // {id,n1,n2,E,A,I,S,c,wd,qix,qjx,qiy,qjy,release_i,release_j,label,isBar}
   let nextNodeId = 1, nextMemberId = 1;
 
   let dragStart = null, hoverEndNodeId = null;
@@ -182,7 +183,7 @@
       const t = members[0];
       ({E,A,I,S,c,wd,qix,qjx,qiy,qjy,release_i,release_j} = t);
     }
-    members.push({ id,n1,n2,E,A,I,S,c,wd,qix,qjx,qiy,qjy,release_i,release_j,label });
+    members.push({ id,n1,n2,E,A,I,S,c,wd,qix,qjx,qiy,qjy,release_i,release_j,label, isBar:false });
     refreshLists();
     return id;
   }
@@ -477,6 +478,8 @@
         <label style="grid-column:1/3; font-weight:600; margin-top:6px;">End Releases (internal hinges)</label>
         <label><input id="relI" type="checkbox" ${m.release_i?'checked':''}/> Release iθ</label>
         <label><input id="relJ" type="checkbox" ${m.release_j?'checked':''}/> Release jθ</label>
+
+        <div class="hint" style="grid-column:1/3; margin-top:6px;">Set I = 0 to treat this member as a pure <b>bar</b> (axial only in global). If I & S are provided, we’ll show pin–pin bending in post when transverse load is present.</div>
       </div>`;
     Swal.fire({
       title:`Member ${m.id}`,
@@ -487,13 +490,15 @@
         let A=v('A'), I=v('I'), S=v('S');
         let c = (S>0 && I>0) ? (I/S) : (m.c||0);
         if ((S<=0) && (I>0 && c>0)) S = I/c;
+        const isBar = (I <= 0);
         return {
           label: s('label').trim(),
           E:v('E'), wd:v('wd'),
           A: A||0, I: I||0, c: c||0, S: S||0,
           qix:v('qix'), qjx:v('qjx'), qiy:v('qiy'), qjy:v('qjy'),
           release_i: document.getElementById('relI').checked,
-          release_j: document.getElementById('relJ').checked
+          release_j: document.getElementById('relJ').checked,
+          isBar
         };
       }
     }).then(res=>{ if (res.isConfirmed){ Object.assign(m,res.value); refreshLists(); draw(); }});
@@ -685,7 +690,7 @@
     const DIV = Math.max(1, Math.min(50, (parseInt(document.getElementById('divCount').value)||10)));
     try {
       const build = buildAnalysisModel(DIV);
-      const {N, dofMap, anodes, F, K} = build;
+      const {N, dofMap, anodes, F, K, memberSubs} = build;
 
       // Springs
       for (const n of nodes){
@@ -705,12 +710,6 @@
         const b = dofMap.primary[n.id]; if (b===undefined) continue;
         if (n.bc==='fixed'){ constrained.add(b+0); constrained.add(b+1); constrained.add(b+2); }
         else if (n.bc==='simple'){ constrained.add(b+0); constrained.add(b+1); } // u=v=0
-      }
-
-      // (harmless) extra: if any analysis node connects only axial bars, constrain its θ
-      for (const aid of build.axialOnlyThetaNodes){
-        const gi = (aid-1)*3 + 2;
-        constrained.add(gi);
       }
 
       const allIdx = [...Array(N).keys()];
@@ -734,7 +733,7 @@
       const sublines = [];
       for (const mem of members){
         const poly = [];
-        const sub = build.memberSubs[mem.id];
+        const sub = memberSubs[mem.id];
         for (const nid of sub){
           const aidx = build.dofMap.analysis[nid];
           const ux = U[aidx+0], vy = U[aidx+1];
@@ -749,23 +748,23 @@
       const stress = {};
       for (const mem of members){
         const info = mf.perMember[mem.id]; if (!info) continue;
-        const A=mem.A||0, S = (mem.S>0)? mem.S : ((mem.I>0 && mem.c>0)? mem.I/mem.c : 0);
+        const A = mem.A||0;
+        const S = (mem.S>0)? mem.S : ((mem.I>0 && mem.c>0)? mem.I/mem.c : 0);
+
         const sL=[], sR=[], pts=[];
-        const sub = build.memberSubs[mem.id];
+        const sub = memberSubs[mem.id];
         for (let idx=0; idx<sub.length; idx++){
           const aid = sub[idx];
-          const np = build.anodes[aid];
-          const N = info.N[idx]||0;
-          const M = info.M[idx]||0;
-          let sigL=0, sigR=0;
-          if (A>0){
-            const axial = N/A;
-            if (info.mode === 'axial' || S<=0){
-              sigL = sigR = axial; // bar: axial only
-            } else {
-              sigL = axial - M/S;
-              sigR = axial + M/S;
-            }
+          const np  = build.anodes[aid];
+
+          const N = info.N[idx]||0;  // tension +
+          const M = info.M[idx]||0;  // bending moment (beams or bar-post)
+          const axial = (A>0)? (N/A) : 0;
+
+          let sigL=axial, sigR=axial;
+          if (S>0){
+            sigL = axial - M/S;  // left fiber
+            sigR = axial + M/S;  // right fiber
           }
           sL.push(sigL); sR.push(sigR);
           pts.push({x_up:np.x_up, y_up:np.y_up});
@@ -773,7 +772,7 @@
         stress[mem.id] = { pts, sL, sR };
       }
 
-      lastSolution = { Ufull:U, dofMap:build.dofMap, anodes:build.anodes, sublines, reactions:R, stress, memberSubs:build.memberSubs };
+      lastSolution = { Ufull:U, dofMap:build.dofMap, anodes:build.anodes, sublines, reactions:R, stress, memberSubs };
 
       // primary node displacements
       lastSolution.primaryRes = nodes.map(n=>{
@@ -814,7 +813,7 @@
     }
   }
 
-  // Build FEM model (mix beams & bars)
+  // Build FEM model (bars axial-only; beams full frame). Bars still get post pin–pin bending for stress if I & transverse load exist.
   function buildAnalysisModel(DIV){
     const anodes = {};
     const dofMap = { primary:{}, analysis:{} };
@@ -823,18 +822,12 @@
     for (const n of nodes){
       const id=aNextId++;
       anodes[id] = { x_up:n.x, y_up:yUp(n.y), primary:n.id };
-      dofMap.primary[n.id] = (id-1)*3;
-      dofMap.analysis[id] = (id-1)*3;
+      dofMap.primary[n.id]  = (id-1)*3;
+      dofMap.analysis[id]   = (id-1)*3;
     }
 
     const memberSubs = {};
     const elems = [];
-
-    // Track nodes that connect only axial bars -> we can constrain θ safely
-    const axialTouchCount = new Map(); // analysis node id -> count of axial connections
-    const totalTouchCount  = new Map();
-
-    function bump(map, key){ map.set(key, (map.get(key)||0)+1); }
 
     for (const m of members){
       const ni = getAnalysisIdForPrimary(m.n1, anodes);
@@ -842,205 +835,226 @@
       const pi = anodes[ni], pj = anodes[nj];
       const dx = pj.x_up - pi.x_up, dy = pj.y_up - pi.y_up;
       const L = Math.hypot(dx,dy); if (L<1e-9) continue;
+
       const c = dx/L, s = dy/L;
-
-      const isBar = !!(m.release_i && m.release_j);
-
       const subNodes=[ni];
-      for (let k=1; k<=DIV; k++){
+      for (let k=1;k<=DIV;k++){
         const t=k/(DIV+1);
         const id=aNextId++;
-        anodes[id]={ x_up: pi.x_up + t*dx, y_up: pi.y_up + t*dy };
-        dofMap.analysis[id]=(id-1)*3;
+        anodes[id] = { x_up: pi.x_up+t*dx, y_up: pi.y_up+t*dy };
+        dofMap.analysis[id] = (id-1)*3;
         subNodes.push(id);
       }
       subNodes.push(nj);
       memberSubs[m.id]=subNodes;
 
-      // segment loads averaged per sub-element
-      for (let sidx=0; sidx<subNodes.length-1; sidx++){
-        const a=subNodes[sidx], b=subNodes[sidx+1];
+      const sw = (m.wd||0)*(m.A||0);  // self-weight per length, global -Y
+      for (let sIdx=0; sIdx<subNodes.length-1; sIdx++){
+        const a=subNodes[sIdx], b=subNodes[sIdx+1];
         const aP=anodes[a], bP=anodes[b];
         const segLen = Math.hypot(bP.x_up-aP.x_up, bP.y_up-aP.y_up);
-        const cc = (bP.x_up-aP.x_up)/segLen, ss = (bP.y_up-aP.y_up)/segLen;
+        const cAB=(bP.x_up-aP.x_up)/segLen, sAB=(bP.y_up-aP.y_up)/segLen;
 
         const DIVs=subNodes.length-1;
-        const t0 = sidx/(DIVs), t1 = (sidx+1)/(DIVs);
+        const t0 = sIdx/(DIVs), t1=(sIdx+1)/(DIVs);
+
         const qx0 = lerp(m.qix, m.qjx, t0), qx1 = lerp(m.qix, m.qjx, t1);
         const qy0 = lerp(m.qiy, m.qjy, t0), qy1 = lerp(m.qiy, m.qjy, t1);
-        const sw  = (m.wd||0)*(m.A||0);
-
         const qx_avg = 0.5*(qx0+qx1);
         const qy_avg = 0.5*(qy0+qy1) - sw;
 
-        // local uniform p,w
-        const p =  cc*qx_avg + ss*qy_avg;     // axial per length (local x)
-        let   w = -ss*qx_avg + cc*qy_avg;     // transverse per length (local y, +left)
-
-        // If this member is a bar (pin-pin), it has NO transverse stiffness:
-        // ignore transverse distributed load for assembly.
-        if (isBar) w = 0;
+        const p =  cAB*qx_avg + sAB*qy_avg;     // local axial per length
+        const w = -sAB*qx_avg + cAB*qy_avg;     // local transverse per length
 
         elems.push({
-          i:a, j:b, L:segLen, c:cc, s:ss, E:m.E||0, A:m.A||0, I:m.I||0,
-          memId:m.id, p, w, rel_i:(sidx===0)&&!!m.release_i, rel_j:(sidx===subNodes.length-2)&&!!m.release_j,
-          mode: isBar ? 'axial' : 'frame'
+          i:a, j:b, L:segLen, c:cAB, s:sAB,
+          E:m.E||0, A:m.A||0, I:m.I||0,
+          memId:m.id, p, w,
+          isBar: !!m.isBar,
+          rel_i:(sIdx===0)&&!!m.release_i,
+          rel_j:(sIdx===subNodes.length-2)&&!!m.release_j
         });
       }
-
-      // touch-count bookkeeping for θ-only nodes
-      bump(totalTouchCount, ni); bump(totalTouchCount, nj);
-      if (isBar){ bump(axialTouchCount, ni); bump(axialTouchCount, nj); }
-    }
-
-    const axialOnlyThetaNodes = [];
-    for (const [aid, tot] of totalTouchCount.entries()){
-      const ax = axialTouchCount.get(aid)||0;
-      if (ax>0 && ax===tot){ axialOnlyThetaNodes.push(aid); }
     }
 
     const N = Object.keys(anodes).length * 3;
     const K = zeros(N,N);
     const F = zeros(N);
 
-    // === Assembly (mix) ===
     for (const el of elems){
-      const ib = dofMap.analysis[el.i], jb = dofMap.analysis[el.j];
-      const fullMap = [ib+0, ib+1, ib+2, jb+0, jb+1, jb+2];
-
-      if (el.mode === 'axial'){
-        // true truss bar (pin-pin) — 4x4 placed into 6x6 slot
-        const EA = (el.E || 0) * (el.A || 0);
-        const L  = el.L || 1e-9;
-        const c = el.c, s = el.s;
-        const k = (EA / L);
-        const k4 = [
-          [ k*c*c,  k*c*s, -k*c*c, -k*c*s ],
-          [ k*c*s,  k*s*s, -k*c*s, -k*s*s ],
-          [-k*c*c, -k*c*s,  k*c*c,  k*c*s ],
-          [-k*c*s, -k*s*s,  k*c*s,  k*s*s ],
+      let kLocal, fLoc;
+      if (el.isBar){
+        const EA = (el.E||0)*(el.A||0);
+        const kAx = [
+          [ EA/el.L, 0,0, -EA/el.L, 0,0 ],
+          [ 0,0,0, 0,0,0 ],
+          [ 0,0,0, 0,0,0 ],
+          [ -EA/el.L, 0,0, EA/el.L, 0,0 ],
+          [ 0,0,0, 0,0,0 ],
+          [ 0,0,0, 0,0,0 ],
         ];
-        const kG = [
-          [k4[0][0], k4[0][1], 0, k4[0][2], k4[0][3], 0],
-          [k4[1][0], k4[1][1], 0, k4[1][2], k4[1][3], 0],
-          [0,        0,        0, 0,        0,        0],
-          [k4[2][0], k4[2][1], 0, k4[2][2], k4[2][3], 0],
-          [k4[3][0], k4[3][1], 0, k4[3][2], k4[3][3], 0],
-          [0,        0,        0, 0,        0,        0],
+        kLocal = kAx;
+        fLoc = [ el.p*el.L/2, 0,0, el.p*el.L/2, 0,0 ];
+      } else {
+        kLocal = frameKLocal(el.E, el.A, el.I, el.L);
+        fLoc = [
+          el.p*el.L/2, el.w*el.L/2,  el.w*el.L*el.L/12,
+          el.p*el.L/2, el.w*el.L/2, -el.w*el.L*el.L/12
         ];
-        addToGlobalVar(K, kG, fullMap);
-        // no fixed-end loads for bars
-        continue;
       }
 
-      // regular frame (with possible end release by condensation)
-      const kLocal = frameKLocal(el.E, el.A, el.I, el.L);
       const T = frameT(el.c, el.s);
       let kG = numeric.dot(numeric.transpose(T), numeric.dot(kLocal, T));
-
-      const fLoc=[ el.p*el.L/2, el.w*el.L/2,  el.w*el.L*el.L/12,
-                   el.p*el.L/2, el.w*el.L/2, -el.w*el.L*el.L/12 ];
       let fG = numeric.dot(numeric.transpose(T), fLoc);
 
       const relIdx=[];
-      if (el.rel_i) relIdx.push(2);
-      if (el.rel_j) relIdx.push(5);
+      if (!el.isBar){
+        if (el.rel_i) relIdx.push(2);
+        if (el.rel_j) relIdx.push(5);
+      }
+      const ib = dofMap.analysis[el.i], jb = dofMap.analysis[el.j];
+      const fullMap=[ib+0, ib+1, ib+2, jb+0, jb+1, jb+2];
 
       if (relIdx.length){
-        const {Keff, feff} = condenseDOFs(kG, fG, relIdx);
-        kG=Keff; fG=feff;
-        const keptMap = keptMapFromRemoved(fullMap, relIdx);
-        addToGlobalVar(K, kG, keptMap);
-        addToGlobalVecVar(F, fG, keptMap);
+        const {Keff, feff} = condenseDOFsReturnKept(kG, fG, relIdx);
+        kG = Keff; fG = feff;
+        const kept = keptMapFromRemoved(fullMap, relIdx);
+        addToGlobalVar(K, kG, kept);
+        addToGlobalVecVar(F, fG, kept);
       } else {
         addToGlobalVar(K, kG, fullMap);
         addToGlobalVecVar(F, fG, fullMap);
       }
     }
 
-    return { N, dofMap, anodes, F, K, memberSubs, elems, axialOnlyThetaNodes };
+    return { N, dofMap, anodes, F, K, memberSubs, elems };
   }
 
-  // Internal forces → M,N along each member (local)
+  // Internal forces → M,N along each member (local) + bar post pin–pin bending
   function elementEndForces(U, build){
+    const perElem=[];
     const perMember={};
+
+    function dGlobFor(el){
+      const ib = build.dofMap.analysis[el.i], jb = build.dofMap.analysis[el.j];
+      return [ U[ib+0],U[ib+1],U[ib+2], U[jb+0],U[jb+1],U[jb+2] ];
+    }
+
     for (const el of build.elems){
-      const ib = build.dofMap.analysis[el.i], jb=build.dofMap.analysis[el.j];
-      const dGlob=[ U[ib+0],U[ib+1],U[ib+2], U[jb+0],U[jb+1],U[jb+2] ];
-
-      if (el.mode === 'axial'){
-        // truss: use 2D bar k(4x4) * d(4), no fixed-end loads
-        const c=el.c, s=el.s, L=el.L, EA=(el.E||0)*(el.A||0);
-        const k = (EA/(L||1e-9));
-        const k4 = [
-          [ k*c*c,  k*c*s, -k*c*c, -k*c*s ],
-          [ k*c*s,  k*s*s, -k*c*s, -k*s*s ],
-          [-k*c*c, -k*c*s,  k*c*c,  k*c*s ],
-          [-k*c*s, -k*s*s,  k*c*s,  k*s*s ],
-        ];
-        const d4 = [dGlob[0], dGlob[1], dGlob[3], dGlob[4]]; // [ui,vi, uj,vj]
-        const f4 = numeric.dot(k4, d4);
-        // axial forces at ends in local x: transform to local then read Nx
-        // local transform (2x2 for each node)
-        const T2 = [[ c, s ], [ -s, c ]]; // global->local for displacements (pos x along member)
-        const ui_loc = numeric.dot(T2, [dGlob[0], dGlob[1]])[0];
-        const uj_loc = numeric.dot(T2, [dGlob[3], dGlob[4]])[0];
-        const Nlocal = k*(uj_loc - ui_loc); // constant along bar
-        // register into perMember
-        const memId = el.memId;
-        const sub = build.memberSubs[memId];
-        if (!perMember[memId]){
-          perMember[memId] = { nodes: sub.slice(), M: new Array(sub.length).fill(0), N: new Array(sub.length).fill(0), mode:'axial' };
-        }
-        const info = perMember[memId];
-        // constant N along the two sub nodes of this element
-        const idx_i = sub.indexOf(el.i);
-        const idx_j = sub.indexOf(el.j);
-        if (idx_i>=0) info.N[idx_i] += Nlocal;
-        if (idx_j>=0) info.N[idx_j] += Nlocal;
-        continue;
-      }
-
-      // frame element
-      const kLocal = frameKLocal(el.E, el.A, el.I, el.L);
+      const dGlob = dGlobFor(el);
       const T = frameT(el.c, el.s);
       const dLoc = numeric.dot(T, dGlob);
+      let fLoc;
 
-      const fFixed = [ el.p*el.L/2, el.w*el.L/2,  el.w*el.L*el.L/12,
-                       el.p*el.L/2, el.w*el.L/2, -el.w*el.L*el.L/12 ];
+      if (el.isBar){
+        const EA = (el.E||0)*(el.A||0);
+        const du = dLoc[3]-dLoc[0];
+        const N = (EA/el.L)*du;
+        const fEnd = N - el.p*el.L/2;
+        const gEnd = -N - el.p*el.L/2;
+        fLoc = [ fEnd, 0,0, gEnd, 0,0 ];
+      } else {
+        const kLocal = frameKLocal(el.E, el.A, el.I, el.L);
+        const fFixed = [
+          el.p*el.L/2, el.w*el.L/2,  el.w*el.L*el.L/12,
+          el.p*el.L/2, el.w*el.L/2, -el.w*el.L*el.L/12
+        ];
+        fLoc = numeric.sub(numeric.dot(kLocal, dLoc), fFixed);
+        if (el.rel_i) fLoc[2]=0;
+        if (el.rel_j) fLoc[5]=0;
+      }
 
-      let fLoc = numeric.sub(numeric.dot(kLocal, dLoc), fFixed);
-
-      // zero end moments at released ends (internal hinges)
-      if (el.rel_i) fLoc[2]=0;
-      if (el.rel_j) fLoc[5]=0;
+      perElem.push({el, fLoc});
 
       const memId = el.memId;
       const sub = build.memberSubs[memId];
       if (!perMember[memId]){
-        perMember[memId] = { nodes: sub.slice(), M: new Array(sub.length).fill(0), N: new Array(sub.length).fill(0), cnt:new Array(sub.length).fill(0), mode:'frame' };
+        perMember[memId] = { nodes: sub.slice(), M:new Array(sub.length).fill(0), N:new Array(sub.length).fill(0), cnt:new Array(sub.length).fill(0) };
       }
       const info = perMember[memId];
 
       const idx_i = sub.indexOf(el.i);
       const idx_j = sub.indexOf(el.j);
 
-      const Ni = fLoc[0], Mi = fLoc[2];
-      const Nj = -fLoc[3], Mj = -fLoc[5];
+      const Ni = el.isBar ? (fLoc[0] + el.p*el.L/2) : fLoc[0];
+      const Nj = el.isBar ? (-(fLoc[3]) + el.p*el.L/2) : -fLoc[3];
+      info.N[idx_i] += Ni; info.N[idx_j] += Nj;
 
-      if (idx_i>=0){ info.M[idx_i] += Mi; info.N[idx_i] += Ni; info.cnt[idx_i] = (info.cnt[idx_i]||0)+1; }
-      if (idx_j>=0){ info.M[idx_j] += Mj; info.N[idx_j] += Nj; info.cnt[idx_j] = (info.cnt[idx_j]||0)+1; }
-    }
-    // average M at shared subnodes (frames)
-    for (const memId of Object.keys(perMember)){
-      const info=perMember[memId];
-      if (info.mode==='frame' && info.cnt){
-        for (let k=0;k<info.nodes.length;k++){
-          if (info.cnt[k]>0){ info.M[k] /= info.cnt[k]; }
-        }
+      if (!el.isBar){
+        const Mi = fLoc[2], Mj = -fLoc[5];
+        info.M[idx_i] += Mi; info.cnt[idx_i] += 1;
+        info.M[idx_j] += Mj; info.cnt[idx_j] += 1;
       }
     }
-    return { perMember };
+
+    for (const memId of Object.keys(perMember)){
+      const info = perMember[memId];
+      for (let k=0;k<info.nodes.length;k++){
+        if (info.cnt[k]>0) info.M[k] /= info.cnt[k];
+      }
+    }
+
+    // Bar post-processing: pin–pin bending from transverse loads (if I & A exist)
+    for (const mem of members){
+      if (!mem.isBar) continue;
+      const info = perMember[mem.id]; if (!info) continue;
+
+      const A = mem.A||0, I = mem.I||0;
+      const hasI = I > 0; // user may still provide I for post-stress only
+      if (!hasI) { // nothing to add; axial-only
+        continue;
+      }
+
+      // Build arc length xs
+      const sub = build.memberSubs[mem.id];
+      const pts=sub.map(aid => build.anodes[aid]);
+      const xs=[0]; let Lsum=0;
+      for (let i=1;i<pts.length;i++){
+        const dx=pts[i].x_up-pts[i-1].x_up, dy=pts[i].y_up-pts[i-1].y_up;
+        Lsum += Math.hypot(dx,dy);
+        xs.push(Lsum);
+      }
+      const L = Lsum || 1;
+
+      // local transverse profile w(x) from qix→qjy and self-weight
+      const sw = (mem.wd||0)*(A||0);
+      const c = (pts[pts.length-1].x_up - pts[0].x_up)/L;
+      const s = (pts[pts.length-1].y_up - pts[0].y_up)/L;
+
+      const qyLocal = xs.map(x=>{
+        const t = x/L;
+        const qx = mem.qix + (mem.qjx-mem.qix)*t;
+        const qy = mem.qiy + (mem.qjy-mem.qiy)*t - sw;
+        return (-s)*qx + (c)*qy; // local transverse
+      });
+
+      const {M} = integrate_w_to_M_pinpin(xs, qyLocal);
+      for (let i=0;i<info.nodes.length;i++){
+        info.M[i] = M[i]; // overwrite/add bar bending
+      }
+    }
+
+    return { perElem, perMember };
+  }
+
+  function integrate_w_to_M_pinpin(xs, w){
+    const n = xs.length;
+    const V = new Array(n).fill(0);
+    const M = new Array(n).fill(0);
+    for (let i=1;i<n;i++){
+      const dx = xs[i]-xs[i-1];
+      V[i] = V[i-1] + 0.5*(w[i-1]+w[i])*dx;
+    }
+    for (let i=1;i<n;i++){
+      const dx = xs[i]-xs[i-1];
+      M[i] = M[i-1] + 0.5*(V[i-1]+V[i])*dx;
+    }
+    const M0 = M[0];
+    for (let i=0;i<n;i++) M[i] -= M0;
+    const ML = M[n-1];
+    const alpha = ML / (xs[n-1] || 1);
+    for (let i=0;i<n;i++) M[i] -= alpha * xs[i];
+    return {V, M};
   }
 
   // ===== Stress Panel =====
@@ -1055,7 +1069,6 @@
     const st = lastSolution.stress[selectedMemberId];
     if (!st){ spx.fillText('Selected member has no stress data.', 10, 20); return; }
 
-    // Build x (0..L) along member
     const xs=[0]; let Lsum=0;
     for (let i=1;i<st.pts.length;i++){
       const x0=st.pts[i-1].x_up, y0=st.pts[i-1].y_up, x1=st.pts[i].x_up, y1=st.pts[i].y_up;
@@ -1063,7 +1076,7 @@
       xs.push(Lsum);
     }
 
-    // UI convention
+    // plot (flip signs as before for UI convention)
     const SLp = st.sL.map(v => -v);
     const SRp = st.sR.map(v => -v);
 
@@ -1086,7 +1099,8 @@
     spx.strokeStyle='#3b82f6'; spx.beginPath();
     for (let i=0;i<xs.length;i++){ const x=xMap(xs[i]), y=yMap(SRp[i]); if (i===0) spx.moveTo(x,y); else spx.lineTo(x,y); } spx.stroke();
 
-    spx.fillStyle='#666'; spx.fillText(`${minS.toFixed(3)}`, 6, yMap(minS)+4);
+    spx.fillStyle='#666';
+    spx.fillText(`${minS.toFixed(3)}`, 6, yMap(minS)+4);
     spx.fillText(`${maxS.toFixed(3)}`, 6, yMap(maxS)+4);
     spx.fillText(`Member ${selectedMemberId}`, left+6, top+12);
     spx.restore();
@@ -1116,8 +1130,8 @@
     ];
   }
 
-  function condenseDOFs(K, f, removeIdxs){
-    let A = K.map(row=>row.slice());
+  function condenseDOFsReturnKept(K, f, removeIdxs){
+    let A = K.map(r=>r.slice());
     let b = f.slice();
     const rel = removeIdxs.slice().sort((a,b)=>b-a);
     let keptIdx = [0,1,2,3,4,5];
@@ -1221,7 +1235,7 @@
 
     memberList.innerHTML = members.map(m =>
       `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-         <span>Member ${m.id} [${m.label||''}]: n${m.n1}–n${m.n2} | E=${fmt(m.E)} A=${fmt(m.A)} I=${fmt(m.I)} S=${fmt(m.S)} c=${fmt(m.c)} wd=${fmt(m.wd)} qx=${fmt(m.qix)}→${fmt(m.qjx)} qy=${fmt(m.qiy)}→${fmt(m.qjy)} ${m.release_i?'| rel iθ':''} ${m.release_j?'| rel jθ':''}</span>
+         <span>Member ${m.id} [${m.label||''}]: n${m.n1}–n${m.n2} | E=${fmt(m.E)} A=${fmt(m.A)} I=${fmt(m.I)} S=${fmt(m.S)} c=${fmt(m.c)} wd=${fmt(m.wd)} qx=${fmt(m.qix)}→${fmt(m.qjx)} qy=${fmt(m.qiy)}→${fmt(m.qjy)} ${m.release_i?'| rel iθ':''} ${m.release_j?'| rel jθ':''} ${m.isBar?'| bar':''}</span>
          <button class="ghost" data-del-member="${m.id}" title="Delete member">✖</button>
        </div>`
     ).join('') || '<div class="hint">No members yet.</div>';
@@ -1253,9 +1267,11 @@
   setActiveGroup(viewBtns,'viewGeom');
   refreshLists();
   draw();
+
 })();
 </script>
 </body>
 </html>
+
 
 
